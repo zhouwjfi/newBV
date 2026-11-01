@@ -18,6 +18,7 @@ import dev.frost819.newbv.app.ui.state.player.PlayerUiEffect
 import dev.frost819.newbv.app.ui.state.player.PlayerUiState
 import dev.frost819.newbv.app.ui.state.player.SeekerState
 import dev.frost819.newbv.app.util.PlaybackCandidate
+import dev.frost819.newbv.app.util.PlaybackGuard
 import dev.frost819.newbv.app.util.PlayerConstants
 import dev.frost819.newbv.app.util.VideoCapabilityProvider
 import dev.frost819.newbv.app.util.VideoDecodeProfile
@@ -456,10 +457,16 @@ class PlayerViewModel
             val initialSpeed = Prefs.defaultPlaySpeed.speed
             _uiState.update { it.copy(playSpeed = initialSpeed) }
             newPlayer.speed = initialSpeed
+            // 全局单播放：新播放器就绪前先停掉其它页面仍在播放的播放器
+            PlaybackGuard.acquire(this) {
+                videoPlayer?.pause()
+                videoPlayer?.stop()
+            }
         }
 
         /** 释放播放器资源，同步进度到 B 站。 */
         fun detachPlayer() {
+            PlaybackGuard.release(this)
             syncProgress(scope = detachedWorkScope, isDetaching = true)
             videoPlayer?.release()
             videoPlayer = null

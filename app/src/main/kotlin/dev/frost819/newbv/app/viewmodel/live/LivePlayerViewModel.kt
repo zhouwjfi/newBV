@@ -12,6 +12,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.frost819.newbv.app.ui.component.livecard.formatOnlineCount
 import dev.frost819.newbv.app.ui.state.live.LivePlayerState
 import dev.frost819.newbv.app.ui.state.live.LivePlayerUiState
+import dev.frost819.newbv.app.util.PlaybackGuard
 import dev.frost819.newbv.app.util.VideoCapabilityProvider
 import dev.frost819.newbv.app.util.VideoDecodeProfile
 import dev.frost819.newbv.app.util.toPlaybackLoadErrorMessage
@@ -165,6 +166,11 @@ class LivePlayerViewModel
             videoPlayer?.setPlayerEventListener(videoPlayerListener)
             videoPlayer?.initPlayer()
             videoPlayer?.setOptions()
+            // 全局单播放：新播放器就绪前先停掉其它页面仍在播放的播放器
+            PlaybackGuard.acquire(this) {
+                videoPlayer?.pause()
+                videoPlayer?.stop()
+            }
         }
 
         /**
@@ -537,6 +543,7 @@ class LivePlayerViewModel
          * 弹幕播放器由 [DanmakuViewModel] 管理释放，此处不释放。
          */
         fun detachPlayer() {
+            PlaybackGuard.release(this)
             wsJob?.cancel()
             stopDebugInfoUpdater()
             videoPlayer?.release()

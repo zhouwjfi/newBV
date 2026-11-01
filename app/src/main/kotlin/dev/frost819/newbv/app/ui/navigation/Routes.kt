@@ -47,6 +47,12 @@ data class SeasonPlayerRoute(
     val cover: String = "",
 )
 
+/** DLNA 投屏播放页面。 */
+@Serializable
+data class CastPlayerRoute(
+    val sessionId: Long,
+)
+
 // ── 搜索 ──────────────────────────────────────────────────────────────
 
 /** 搜索结果页。 */

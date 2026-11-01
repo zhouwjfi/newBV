@@ -7,11 +7,15 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
@@ -145,12 +149,42 @@ fun NavGraphBuilder.livePlayerScreen(navController: NavController) {
         PlayerWindowEffect(
             keepScreenOn = liveUiState.playerState == LivePlayerState.Playing || liveUiState.isBuffering,
         )
+        PauseOnBackgroundEffect {
+            if (liveUiState.playerState == LivePlayerState.Playing) {
+                viewModel.togglePlayPause()
+            }
+        }
 
         LivePlayerScreen(
             navController = navController,
             viewModel = viewModel,
             danmakuViewModel = danmakuViewModel,
         )
+    }
+}
+
+/**
+ * 切到后台（ON_PAUSE）时执行暂停，避免投屏/直播在后台继续出声。
+ *
+ * 回到前台不自动续播，保持暂停由用户手动开始。
+ *
+ * @param onPause 暂停回调，回调内容始终取最新一次组合的快照。
+ */
+@Composable
+internal fun PauseOnBackgroundEffect(onPause: () -> Unit) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentOnPause by rememberUpdatedState(onPause)
+    DisposableEffect(lifecycleOwner) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_PAUSE) {
+                    currentOnPause()
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 }
 
@@ -167,7 +201,7 @@ fun NavGraphBuilder.livePlayerScreen(navController: NavController) {
  * @param keepScreenOn 是否需要保持屏幕常亮。
  */
 @Composable
-private fun PlayerWindowEffect(keepScreenOn: Boolean) {
+internal fun PlayerWindowEffect(keepScreenOn: Boolean) {
     val window = (LocalContext.current as? Activity)?.window
 
     // 全屏 + 隐藏系统栏

@@ -9,6 +9,7 @@ import coil3.disk.DiskCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import dagger.hilt.android.HiltAndroidApp
+import dev.frost819.newbv.app.cast.CastReceiverController
 import dev.frost819.newbv.app.network.HttpServer
 import dev.frost819.newbv.app.util.CacheManager
 import dev.frost819.newbv.biliapi.http.BiliHttpApi
@@ -58,6 +59,9 @@ class BVApplication : Application() {
 
     @Inject
     lateinit var channelRepository: ChannelRepository
+
+    @Inject
+    lateinit var castReceiver: CastReceiverController
 
     /**
      * 播放器与 CDN 测速共用的 OkHttpClient。
@@ -159,6 +163,9 @@ class BVApplication : Application() {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             CacheManager(this@BVApplication).checkCache()
         }
+
+        // 启动 DLNA 投屏接收服务（设备发现 + 控制服务）
+        castReceiver.start()
 
         // 预热播放器 OkHttpClient（构建 SSLContext/KeyStore 较慢，放到 IO 线程）。
         // 预热后单例已就绪，首次进播放器时不再阻塞主线程。
