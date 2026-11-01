@@ -1,0 +1,61 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（如 1.0.0，留空则使用仓库内当前版本）"
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 写入签名配置
+        env:
+          SIGNING_PROPERTIES: ${{ secrets.SIGNING_PROPERTIES }}
+          SIGN_KEY: ${{ secrets.SIGN_KEY }}
+        run: |
+          if [ -n "$SIGNING_PROPERTIES" ]; then
+            echo "$SIGNING_PROPERTIES" | base64 -d > signing.properties
+            echo "$SIGN_KEY" | base64 -d > key.jks
+          else
+            echo "::warning::未配置 SIGNING_PROPERTIES / SIGN_KEY，产物为未签名 APK，无法直接安装"
+          fi
+
+      - name: 构建 release APK
+        run: |
+          chmod +x gradlew
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -n "$VERSION" ]; then export NEWBV_VERSION_BASE="$VERSION"; fi
+          ./gradlew assembleRelease
+
+      - name: 读取版本信息
+        run: |
+          META=app/build/outputs/apk/release/output-metadata.json
+          echo "versionCode=$(jq -r '.elements[0].versionCode' "$META")" >> "$GITHUB_ENV"
+          echo "versionName=$(jq -r '.elements[0].versionName' "$META")" >> "$GITHUB_ENV"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: newBV_${{ env.versionName }}_${{ env.versionCode }}
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
