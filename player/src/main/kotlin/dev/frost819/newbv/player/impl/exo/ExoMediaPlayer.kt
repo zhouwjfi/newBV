@@ -12,6 +12,9 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.audio.AudioCapabilities
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistParserFactory
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
@@ -93,7 +96,7 @@ class ExoMediaPlayer(
 
     override fun initPlayer() {
         val renderersFactory =
-            DefaultRenderersFactory(context).apply {
+            PassthroughAudioRenderersFactory(context).apply {
                 if (options.enableSoftwareVideoDecoder) {
                     // 强制软件解码：只选择 OMX.google.* / c2.android.* 开头的解码器
                     setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
@@ -381,6 +384,55 @@ class ExoMediaPlayer(
         }
     }
 }
+
+/**
+ * 音频输出的 [DefaultRenderersFactory]：启用杜比源码直通。
+ *
+ * 默认的 [DefaultAudioSink] 只声明 PCM 能力，AC3/E-AC3(Atmos) 音轨会在电视本地
+ * 解码成 PCM 再送 HDMI ARC，外接回音壁收不到杜比码流。
+ *
+ * 直通依赖 [AudioCapabilities] 声明压缩格式能力：Android 13+ 电视上
+ * [AudioCapabilities.getCapabilities] 走 `AudioManager.getDirectProfilesForAttributes`，
+ * 本机（小米电视）只返回 PCM，因此这里直接声明杜比 AC3/E-AC3 能力。
+ * AAC 等格式不在列表中，仍由本地解码器解码成 PCM，行为不变。
+ *
+ * 注意：[DefaultAudioSink.Builder] 不能传 Context —— 带 Context 时
+ * [DefaultAudioSink] 会在运行时注册 `AudioCapabilitiesReceiver`，用系统探测结果
+ * （PCM only）覆盖这里声明的能力，导致直通失效。
+ */
+@OptIn(UnstableApi::class)
+private class PassthroughAudioRenderersFactory(
+    context: Context,
+) : DefaultRenderersFactory(context) {
+    override fun buildAudioSink(
+        context: Context,
+        enableFloatOutput: Boolean,
+        enableAudioTrackPlaybackSpeed: Boolean,
+    ): AudioSink =
+        DefaultAudioSink.Builder()
+            .setAudioCapabilities(PASSTHROUGH_AUDIO_CAPABILITIES)
+            .setEnableFloatOutput(enableFloatOutput)
+            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackSpeed)
+            .build()
+}
+
+/**
+ * 直通音频能力表：PCM + 杜比 AC3 / E-AC3 / E-AC3(Atmos)。
+ *
+ * 电视 audio policy 的 HDMI ARC 端口仅声明支持 AC3 / E-AC3（无 DTS 系），
+ * 因此只声明这两种压缩格式，避免 DTS 音轨因建轨失败导致播放报错。
+ */
+@OptIn(UnstableApi::class)
+private val PASSTHROUGH_AUDIO_CAPABILITIES: AudioCapabilities =
+    AudioCapabilities(
+        intArrayOf(
+            C.ENCODING_PCM_16BIT,
+            C.ENCODING_AC3,
+            C.ENCODING_E_AC3,
+            C.ENCODING_E_AC3_JOC,
+        ),
+        8,
+    )
 
 /**
  * 剥离 `#EXT-X-START` 标签的 HLS Playlist 解析器工厂。
