@@ -13,6 +13,7 @@
 | 版本 | 日期 | 修订人 | 修订内容 |
 |---|---|---|---|
 | v1.0 | 2026-07-20 | new BV 团队 | 初始版本，基于 BV 源码分析产出 |
+| v1.1 | 2026-11-01 | zhouwj | 新增 DLNA 投屏接收与杜比源码直通需求（4.13 / 4.14） |
 
 ### 文档说明
 
@@ -1865,6 +1866,59 @@ CompositionLocalProvider(LocalInteractionTracker provides tracker) {
 **隐私**：
 - 诊断日志仅记录操作类型与必要参数，不记录用户敏感信息（Cookie/Token 等）
 - 日志文件仅本地存储，不上报（除非配置了崩溃上报端点）
+
+---
+
+### 4.13 DLNA 投屏接收 [P1]
+
+#### 4.13.1 功能描述
+
+TV 端作为 DLNA MediaRenderer 接收手机（PiliNara）的投屏请求：手机发现设备后通过 AVTransport 下发媒体地址与稿件标识，TV 按标识打开自带播放器，而不是只播放裸流。
+
+#### 4.13.2 功能规格
+
+**设备发现**：内置 SSDP 服务，监听私有端口 `47823`（同时支持组播与逐 IP 单播探测），设备名 `newBV (${Build.MODEL})`；HTTP 描述与控制服务使用随机端口。
+
+**投屏元数据**：DIDL-Lite 中携带扩展字段 `pili:aid / pili:bvid / pili:cid / pili:epid / pili:sid / pili:cover`，直播携带 `pili:live`（roomId）。
+
+**接收行为**：
+- 携带 `aid + cid` → `VideoPlayerRoute`；携带 `epid` → `SeasonPlayerRoute`；携带 `pili:live` → `LivePlayerRoute`
+- 无上述标识 → `CastPlayerRoute`（仅播放下发地址）
+- 复用普通播放器的画质、弹幕、字幕、倍速等完整控制
+
+**播放约束**：
+- `PlaybackGuard` 保证全局仅一个播放器持有播放与音频焦点，避免投屏与本地播放同时出声
+- 每次投屏以 `popUpTo(HomeRoute)` 替换当前播放页，返回栈不堆积
+- `MainActivity` 使用 `singleTask`，从桌面重进直接回到投屏页
+- 应用进入后台（`ON_PAUSE`）自动暂停，回前台不自动续播
+
+#### 4.13.3 验收标准
+
+- 手机在局域网内能发现 TV，并成功投屏视频与直播
+- 投屏后 TV 上原播放内容立即停止，不会两路同时播放
+- 连续多次投屏后按一次返回即可回到主页
+- 投屏直播可切换画质并查看弹幕
+
+---
+
+### 4.14 杜比源码直通 [P1]
+
+#### 4.14.1 功能描述
+
+外接回音壁 / 功放通过 HDMI ARC 连接时，TV 直接输出杜比压缩码流，由外接设备解码，而不是在 TV 本地解码成 PCM 后再输出。
+
+#### 4.14.2 功能规格
+
+- 自定义 `AudioCapabilities`，声明 PCM 16bit、AC3、E-AC3、E-AC3 JOC（Atmos），最大 8 声道
+- `DefaultAudioSink` 使用无参 `Builder`，避免运行时 `AudioCapabilitiesReceiver` 用系统探测结果（仅 PCM）覆盖自定义能力
+- AAC 等非直通格式仍由本地解码器解码为 PCM，行为不变
+- 未声明 DTS 系，避免电视 ARC 端口不支持导致建轨失败
+
+#### 4.14.3 验收标准
+
+- 播放 E-AC3 音轨时 `AudioTrack` 以 `AUDIO_FORMAT_E_AC3` 建轨，`audio_flinger` 的 HAL 格式为 E-AC3
+- 回音壁显示 Dolby Audio / Atmos
+- 普通 AAC 视频播放声音正常
 
 ---
 
